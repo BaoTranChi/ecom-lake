@@ -1,0 +1,15 @@
+{
+  "_ghi_chu": "SAU KHI chạy job 04, xem output/gold/segment_profile.csv rồi sửa 'segments' cho đúng số cụm thực tế. Thứ tự cụm của K-Means là ngẫu nhiên theo seed, nên PHẢI đối chiếu profile trước khi đặt tên. Mỗi cụm gắn với 1 hành động marketing.",
+  "segments": {
+    "0": {"name": "Cần đặt tên", "action": "Xem profile để quyết định", "channel": "none"},
+    "1": {"name": "Cần đặt tên", "action": "Xem profile để quyết định", "channel": "none"},
+    "2": {"name": "Cần đặt tên", "action": "Xem profile để quyết định", "channel": "none"},
+    "3": {"name": "Cần đặt tên", "action": "Xem profile để quyết định", "channel": "none"}
+  },
+  "_vi_du_sau_khi_dat_ten": {
+    "0": {"name": "VIP", "action": "Mời tham gia chương trình thành viên hạng cao, ưu tiên CSKH", "channel": "email"},
+    "1": {"name": "Có nguy cơ rời bỏ", "action": "Gửi voucher 10% hết hạn sau 7 ngày", "channel": "email+push"},
+    "2": {"name": "Khách mới giá trị thấp", "action": "Gợi ý sản phẩm mua cùng để tăng giá trị đơn", "channel": "push"},
+    "3": {"name": "Trung thành", "action": "Tích điểm x2 cho đơn tiếp theo", "channel": "email"}
+  }
+}

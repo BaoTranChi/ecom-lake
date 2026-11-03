@@ -1,0 +1,9 @@
+digraph M {
+  rankdir=TB; nodesep=0.5; fontname="Helvetica"; node [fontname="Helvetica", fontsize=10, shape=record, style="rounded,filled"];
+  edge [fontname="Helvetica", fontsize=9];
+  raw [label="LANDING|CSV thô\l9 cột, chuỗi\lcó lỗi, trùng\l", fillcolor="#f2f2f2"];
+  b [label="BRONZE|Parquet + Snappy\lschema tường minh\l+ _source_file, _ingested_at\lpartition event_date\l", fillcolor="#f3e2cf"];
+  s [label="SILVER|lọc R1–R3, khử trùng R4\lbrand/category chuẩn hóa\l+ cat_l1, cat_l2, hour, dow\levent_ts kiểu timestamp\l", fillcolor="#e3e8ee"];
+  g [label="GOLD|daily_kpi · category_funnel\ltop_products · brand_performance\lhourly_activity · session_funnel\lcustomer_segments · recommendations\lproduct_graph_* · stream_kpi_windows\l", fillcolor="#f6e7b4"];
+  raw -> b [label="01 ingest"]; b -> s [label="02 clean"]; s -> g [label="03 · 04 · 07"];
+}

@@ -1,0 +1,57 @@
+{
+  "history_size": 36,
+  "min_history": 12,
+  "cooldown_windows": 6,
+  "rules": [
+    {
+      "id": "CHECKOUT_FAILURE",
+      "type": "zero_with_traffic",
+      "metric": "purchases",
+      "traffic_metric": "views",
+      "min_traffic": 500,
+      "severity": "critical",
+      "action": "page_oncall",
+      "message": "Không có đơn hàng nào trong cửa sổ {window_start} dù có {views} lượt xem — nghi cổng thanh toán lỗi."
+    },
+    {
+      "id": "CONVERSION_DROP",
+      "type": "zscore_low",
+      "metric": "conversion",
+      "traffic_metric": "views",
+      "min_traffic": 500,
+      "threshold": -3.0,
+      "severity": "high",
+      "action": "notify_marketing",
+      "message": "Tỷ lệ chuyển đổi {conversion:.4f} thấp bất thường (z={score}) tại {window_start}."
+    },
+    {
+      "id": "TRAFFIC_DROP",
+      "type": "ratio_low",
+      "metric": "views",
+      "ratio": 0.4,
+      "severity": "high",
+      "action": "notify_devops",
+      "message": "Lưu lượng xem {views} chỉ bằng {score} lần mức trung vị gần đây tại {window_start}."
+    },
+    {
+      "id": "TRAFFIC_SPIKE",
+      "type": "ratio_high",
+      "metric": "views",
+      "ratio": 2.5,
+      "severity": "medium",
+      "action": "enable_rate_limit",
+      "message": "Lưu lượng xem tăng {score} lần tại {window_start} — nghi bot, đề xuất bật rate-limit."
+    },
+    {
+      "id": "REVENUE_SPIKE",
+      "type": "zscore_high",
+      "metric": "revenue",
+      "traffic_metric": "views",
+      "min_traffic": 500,
+      "threshold": 4.0,
+      "severity": "info",
+      "action": "notify_marketing",
+      "message": "Doanh thu {revenue:.0f} tăng đột biến (z={score}) tại {window_start}."
+    }
+  ]
+}

@@ -1,0 +1,170 @@
+# ============================================================================
+# ecom-lake — toàn bộ hệ thống chạy trên 1 máy bằng Docker Compose
+#   Ingestion : Kafka (KRaft, 1 broker) + Kafka UI
+#   Storage   : MinIO (S3 API) làm Data Lake — bronze / silver / gold
+#   Processing: Spark 3.5.3 standalone — 1 master + 2 worker (+ History Server)
+#   Serving   : FastAPI (API ra quyết định) + Streamlit (dashboard) + Alert engine
+# Docker Desktop nên cấp: 4 CPU, 10–11 GB RAM (Settings > Resources).
+# ============================================================================
+
+x-spark-env: &spark-env
+  LAKE_ROOT: s3a://lake
+  S3_ENDPOINT: http://minio:9000
+  S3_ACCESS_KEY: minioadmin
+  S3_SECRET_KEY: minioadmin123
+  KAFKA_BOOTSTRAP: kafka:9092
+  RAW_DIR: /data/raw
+  OUTPUT_DIR: /opt/output
+  PYTHONPATH: /opt/jobs:/opt/spark/python:/opt/spark/python/lib/py4j-0.10.9.7-src.zip
+  SPARK_DAEMON_MEMORY: 512m   # heap cho master/worker/history (không phải executor)
+
+x-spark-common: &spark-common
+  build:
+    context: .
+    dockerfile: docker/spark.Dockerfile
+  image: ecom-lake-spark:3.5.3
+  user: root
+  environment: *spark-env
+  volumes:
+    - ./conf/spark-defaults.conf:/opt/spark/conf/spark-defaults.conf:ro
+    - ./jobs:/opt/jobs
+    - ./tests:/opt/tests
+    - ./scripts:/opt/scripts
+    - ./data/raw:/data/raw
+    - ./output:/opt/output
+    - spark-events:/opt/spark-events
+
+x-apps-common: &apps-common
+  build:
+    context: .
+    dockerfile: docker/apps.Dockerfile
+  image: ecom-lake-apps:1.0
+  environment:
+    KAFKA_BOOTSTRAP: kafka:9092
+    OUTPUT_DIR: /app/output
+    CONF_DIR: /app/conf
+    RULES_PATH: /app/conf/rules.json
+    TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:-}
+    TELEGRAM_CHAT_ID: ${TELEGRAM_CHAT_ID:-}
+    ALERT_WEBHOOK_URL: ${ALERT_WEBHOOK_URL:-}
+  volumes:
+    - ./apps:/app/src
+    - ./conf:/app/conf:ro
+    - ./data/raw:/data/raw:ro
+    - ./output:/app/output
+  working_dir: /app/src
+
+services:
+  # ------------------------------------------------------------ Storage
+  minio:
+    image: cgr.dev/chainguard/minio:latest   # minio/minio đã bị gỡ khỏi Docker Hub (09/2026)
+    user: root                               # image mặc định chạy UID 65532; root để ghi được volume
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin123
+    ports:
+      - "9000:9000"   # S3 API
+      - "9001:9001"   # Web console
+    volumes:
+      - minio-data:/data
+
+  # ------------------------------------------------------------ Processing
+  spark-master:
+    <<: *spark-common
+    command: /opt/spark/bin/spark-class org.apache.spark.deploy.master.Master
+    hostname: spark-master
+    ports:
+      - "8080:8080"   # Master UI
+      - "7077:7077"
+      - "4040:4040"   # UI job batch đang chạy
+      - "4041:4041"   # UI job streaming (khi chạy song song)
+    depends_on: [minio]
+
+  spark-worker-1:
+    <<: *spark-common
+    command: /opt/spark/bin/spark-class org.apache.spark.deploy.worker.Worker spark://spark-master:7077
+    environment:
+      <<: *spark-env
+      SPARK_WORKER_CORES: "2"
+      SPARK_WORKER_MEMORY: 3g
+      SPARK_WORKER_WEBUI_PORT: "8081"
+    ports: ["8081:8081"]
+    depends_on: [spark-master]
+
+  spark-worker-2:
+    <<: *spark-common
+    command: /opt/spark/bin/spark-class org.apache.spark.deploy.worker.Worker spark://spark-master:7077
+    environment:
+      <<: *spark-env
+      SPARK_WORKER_CORES: "2"
+      SPARK_WORKER_MEMORY: 3g
+      SPARK_WORKER_WEBUI_PORT: "8082"
+    ports: ["8082:8082"]
+    depends_on: [spark-master]
+
+  spark-history:
+    <<: *spark-common
+    command: /opt/spark/bin/spark-class org.apache.spark.deploy.history.HistoryServer
+    ports: ["18080:18080"]
+    depends_on: [spark-master]
+
+  # ------------------------------------------------------------ Ingestion (streaming)
+  kafka:
+    image: apache/kafka:3.8.0
+    hostname: kafka
+    ports: ["9094:9094"]          # cho client chạy ngoài Docker (localhost:9094)
+    environment:
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_LISTENERS: PLAINTEXT://:9092,CONTROLLER://:9093,EXTERNAL://:9094
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092,EXTERNAL://localhost:9094
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT,EXTERNAL:PLAINTEXT
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+      KAFKA_NUM_PARTITIONS: 3
+      KAFKA_LOG_RETENTION_HOURS: 48
+      KAFKA_HEAP_OPTS: "-Xmx768m -Xms768m"
+    volumes:
+      - kafka-data:/var/lib/kafka/data
+
+  kafka-ui:
+    image: provectuslabs/kafka-ui:v0.7.2
+    ports: ["8090:8080"]
+    environment:
+      KAFKA_CLUSTERS_0_NAME: ecom-lake
+      KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka:9092
+    depends_on: [kafka]
+
+  # ------------------------------------------------------------ Decision / Action + Serving
+  alert-engine:
+    <<: *apps-common
+    command: python alert_engine.py
+    restart: unless-stopped
+    depends_on: [kafka]
+
+  api:
+    <<: *apps-common
+    command: uvicorn api:app --host 0.0.0.0 --port 8000 --reload
+    ports: ["8000:8000"]
+
+  dashboard:
+    <<: *apps-common
+    command: streamlit run dashboard.py --server.address=0.0.0.0 --server.port=8501 --server.headless=true
+    ports: ["8501:8501"]
+
+  # producer chạy theo lệnh: make produce ...   (không tự khởi động)
+  producer:
+    <<: *apps-common
+    command: python producer.py --help
+    profiles: ["tools"]
+    depends_on: [kafka]
+
+volumes:
+  minio-data:
+  kafka-data:
+  spark-events:

@@ -1,0 +1,10 @@
+data/raw/**/*.csv
+output/*
+!output/.gitkeep
+__pycache__/
+.DS_Store
+.env
+output_luu/
+output_dulieumau/
+*.zip
+.pytest_cache/

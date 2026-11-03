@@ -1,0 +1,53 @@
+digraph G {
+  rankdir=TB; splines=spline; nodesep=0.35; ranksep=0.45; newrank=true; compound=true;
+  fontname="Helvetica"; node [fontname="Helvetica", fontsize=10, shape=box, style="rounded,filled", fillcolor="#ffffff", color="#5b6b7a", width=1.6];
+  edge [fontname="Helvetica", fontsize=8, color="#4a5560", fontcolor="#38424c"];
+
+  subgraph cluster_src { label="① Sources"; style="rounded,filled"; fillcolor="#eef3f8"; color="#c4d0dc";
+    csv [label="REES46 CSV\n5,67 GB/tháng\n42,4 triệu sự kiện"];
+    gen [label="gen_sample.py\ndữ liệu mẫu"]; }
+
+  subgraph cluster_ing { label="② Ingestion"; style="rounded,filled"; fillcolor="#fdf3e6"; color="#e5cfae";
+    prod [label="Producer Python\nreplay ×30 · chèn\nbất thường"];
+    kafka [label="Kafka 3.8 (KRaft)\necom.events\n3 partitions"];
+    j01 [label="Job 01 ingest\nSpark batch"]; }
+
+  subgraph cluster_proc { label="③④ Storage + Processing"; style="rounded,filled"; fillcolor="#f4f7f4"; color="#b9dcc4";
+    j06 [label="Job 06\nStructured Streaming\nwindow 5' · watermark 2'", fillcolor="#f1edf8"];
+    bronze [label="BRONZE (MinIO)\nParquet · event_date", fillcolor="#f3e2cf"];
+    j02 [label="Job 02 clean\nluật R1–R4", fillcolor="#f1edf8"];
+    silver [label="SILVER (MinIO)\nsạch · chuẩn hóa", fillcolor="#e3e8ee"]; }
+
+  subgraph cluster_ana { label="⑤ Analytics (Spark)"; style="rounded,filled"; fillcolor="#f8eef0"; color="#e2c3ca";
+    j03 [label="Job 03 KPI\nSpark SQL"];
+    j04 [label="Job 04 RFM\nK-Means MLlib"];
+    j07 [label="Job 07 Graph\nPageRank · CC · LPA"];
+    gold [label="GOLD (MinIO)\nKPI · segments\ngraph · gợi ý", fillcolor="#f6e7b4"]; }
+
+  subgraph cluster_pre { label="⑥ Presentation"; style="rounded,filled"; fillcolor="#eef6f8"; color="#bcd9e0";
+    dash [label="Dashboard\nStreamlit"];
+    api [label="REST API\nFastAPI"]; }
+
+  subgraph cluster_dec { label="⑦ Decision / Action"; style="rounded,filled"; fillcolor="#fbeeee"; color="#e6bcbc";
+    kpi [label="Kafka\necom.kpi"];
+    rules [label="Alert engine\nz-score · ratio"];
+    act [label="Telegram · Webhook\necom.alerts\nnext-best-action"]; }
+
+  {rank=same; csv; gen}
+  {rank=same; prod; j01}
+  {rank=same; kafka; kpi}
+  {rank=same; j03; j04; j07}
+  {rank=same; j06; j02}
+  {rank=same; dash; api; rules}
+  csv -> prod [label="CSV"]; csv -> j01 [label="CSV"]; gen -> j01;
+  prod -> kafka [label="JSON qua TCP 9092\nkey = user_id"];
+  kafka -> j06 [label="micro-batch 5 s"];
+  j06 -> bronze [label="S3A · Parquet append"]; j01 -> bronze [label="S3A · Parquet"];
+  bronze -> j02 [label="S3A"]; j02 -> silver [label="Parquet"];
+  silver -> j03; silver -> j04; silver -> j07;
+  j03 -> gold [label="Parquet + CSV"]; j04 -> gold; j07 -> gold;
+  gold -> dash [label="CSV"]; gold -> api [label="CSV"];
+  j06 -> kpi [label="JSON KPI/cửa sổ", style=dashed];
+  kpi -> rules [label="consumer"]; rules -> act [label="JSON · HTTP"];
+  api -> act [label="HTTP/JSON: phân khúc → hành động", style=dashed];
+}
